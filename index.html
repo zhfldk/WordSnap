@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WordSnap</title>
+  <meta name="description" content="📸 Snap it. 📖 Learn it. 이미지 속 영어 단어를 한 번에 단어장으로! 손글씨·사진 인식, 뜻 자동 추가, PDF 저장." />
+  <link rel="stylesheet" href="style.css" />
+  <!-- PDF libs -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+  <header class="top">
+    <h1>WordSnap</h1>
+    <p class="tagline">사진 한 장으로 단어장 만들기</p>
+    <div class="controls">
+      <input type="file" id="imageInput" accept="image/*" />
+      <label class="toggle">
+        <input type="checkbox" id="doTranslate" checked />
+        <span>뜻 자동 채우기(무료 사전)</span>
+      </label>
+      <button id="btnAnalyze" class="btn primary">AI 분석</button>
+      <button id="btnPdf" class="btn">PDF 저장</button>
+    </div>
+    <div id="status" class="status">대기 중…</div>
+  </header>
+
+  <main>
+    <table class="vocab-table">
+      <thead>
+        <tr>
+          <th>#</th><th>단어</th><th>뜻</th>
+          <th>#</th><th>단어</th><th>뜻</th>
+        </tr>
+      </thead>
+      <tbody id="vocab-body"></tbody>
+    </table>
+  </main>
+
+  <footer class="foot">
+    <small>© 2025 WordSnap</small>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "wordsnap",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "formidable": "^3.5.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
