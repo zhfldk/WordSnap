@@ -177,7 +177,7 @@ btnPdf?.addEventListener("click", async () => {
   }
 
   doc.setFontSize(14);
-  doc.text("WordSnap 단어장", 40, 40);
+  doc.text("WordSnap", 40, 40);
 
   const rows = [];
   tbody.querySelectorAll("tr").forEach(tr => {
@@ -202,5 +202,5 @@ btnPdf?.addEventListener("click", async () => {
     bodyStyles: { font: 'NotoSansKR' }
   });
 
-  doc.save("WordSnap_단어장_60.pdf");
+  doc.save("WordSnap_단어장.pdf");
 });
