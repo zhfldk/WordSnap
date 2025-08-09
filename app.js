@@ -144,38 +144,11 @@ btnAnalyze.addEventListener("click", async () => {
   }
 });
 
-// ===== PDF (jsPDF + 한글 폰트 임베드) =====
-
-// Regular TTF를 Vercel 정적 경로에서 읽어 base64로 변환
-async function ensureKoreanFont(doc) {
-  if (window.__ws_font_loaded) return;
-  const fontPath = "/fonts/NotoSansKR-Regular.ttf"; // ★ Variable 말고 Regular!
-  const resp = await fetch(fontPath);
-  if (!resp.ok) throw new Error("Font fetch failed: " + resp.status);
-
-  const buf = await resp.arrayBuffer();
-  let binary = "";
-  const bytes = new Uint8Array(buf);
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  const b64 = btoa(binary);
-
-  // jsPDF VFS 등록 + 폰트 이름 'NotoSansKR'
-  doc.addFileToVFS("NotoSansKR-Regular.ttf", b64);
-  doc.addFont("NotoSansKR-Regular.ttf", "NotoSansKR", "normal");
-  window.__ws_font_loaded = true;
-}
-
-btnPdf?.addEventListener("click", async () => {
+btnPdf?.addEventListener("click", () => { // async 필요 없음
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "a4" });
 
-  try {
-    await ensureKoreanFont(doc);
-    doc.setFont("NotoSansKR", "normal");
-  } catch (e) {
-    console.warn("Korean font load failed; PDF may show broken Hangul.", e);
-  }
-
+  doc.setFont("NotoSansKR", "normal");
   doc.setFontSize(14);
   doc.text("WordSnap", 40, 40);
 
@@ -194,12 +167,12 @@ btnPdf?.addEventListener("click", async () => {
 
   // 표 내부까지 한글 폰트 강제 적용
   doc.autoTable({
-    head: [['#','단어','뜻','#','단어','뜻']],
+    head: [['#', '단어', '뜻', '#', '단어', '뜻']],
     body: rows,
     startY: 60,
     styles: { font: 'NotoSansKR', fontSize: 10, cellPadding: 4 },
-    headStyles: { font: 'NotoSansKR', fillColor: [240,240,240], textColor: 20 },
-    bodyStyles: { font: 'NotoSansKR' }
+    headStyles: { font: 'NotoSansKR', fillColor: [240, 240, 240], textColor: 20 },
+    // styles에 font가 지정되어 있으므로 bodyStyles는 생략 가능
   });
 
   doc.save("WordSnap_단어장.pdf");
