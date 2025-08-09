@@ -2,9 +2,9 @@
    WordSnap app.js (index.html 맞춤)
    - IPA/영어사전 없음
    - "뜻 자동 채우기" 체크박스만 사용
-   - OCR에 한국어 뜻 있으면 복사, 없으면 GPT 배치(ko_meanings)로 한국어 채움
+   - OCR에 한국어 뜻 있으면 복사, 없으면 (있다면) /api/ko_meanings로 한국어 채움
    - 세로 우선(1~30, 31~60)
-   - jsPDF + 한글 폰트 임베드 (/public/fonts/NotoSansKR-VariableFont_wght.ttf)
+   - jsPDF + 한글 폰트 임베드 (NotoSansKR-Regular.ttf)
    ========================= */
 
 // ----- 표 60칸 생성 (1~30, 31~60) -----
@@ -26,7 +26,7 @@ const btnPdf = document.getElementById("btnPdf");
 const statusEl = document.getElementById("status");
 const doTranslateEl = document.getElementById("doTranslate");
 
-// ----- 유틸: 이미지 리사이즈(에러413 방지) -----
+// ----- 유틸: 이미지 리사이즈(413 방지) -----
 async function compressImage(file, { maxW = 2000, maxH = 2000, quality = 0.9, mime = "image/jpeg" } = {}) {
   const url = URL.createObjectURL(file);
   const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
@@ -146,22 +146,22 @@ btnAnalyze.addEventListener("click", async () => {
 
 // ===== PDF (jsPDF + 한글 폰트 임베드) =====
 
-async function toBase64FromUrl(url) {
-  const resp = await fetch(url);
+// Regular TTF를 Vercel 정적 경로에서 읽어 base64로 변환
+async function ensureKoreanFont(doc) {
+  if (window.__ws_font_loaded) return;
+  const fontPath = "/fonts/NotoSansKR-Regular.ttf"; // ★ Variable 말고 Regular!
+  const resp = await fetch(fontPath);
   if (!resp.ok) throw new Error("Font fetch failed: " + resp.status);
+
   const buf = await resp.arrayBuffer();
   let binary = "";
   const bytes = new Uint8Array(buf);
   for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
+  const b64 = btoa(binary);
 
-async function ensureKoreanFont(doc) {
-  if (window.__ws_font_loaded) return;
-  const fontPath = "/fonts/NotoSansKR-VariableFont_wght.ttf"; // public/fonts/ 안에 있어야 함
-  const b64 = await toBase64FromUrl(fontPath);
-  doc.addFileToVFS("NotoSansKR.ttf", b64);
-  doc.addFont("NotoSansKR.ttf", "NotoSansKR", "normal");
+  // jsPDF VFS 등록 + 폰트 이름 'NotoSansKR'
+  doc.addFileToVFS("NotoSansKR-Regular.ttf", b64);
+  doc.addFont("NotoSansKR-Regular.ttf", "NotoSansKR", "normal");
   window.__ws_font_loaded = true;
 }
 
@@ -173,7 +173,7 @@ btnPdf?.addEventListener("click", async () => {
     await ensureKoreanFont(doc);
     doc.setFont("NotoSansKR", "normal");
   } catch (e) {
-    console.warn("Korean font load failed; PDF may break on Hangul.", e);
+    console.warn("Korean font load failed; PDF may show broken Hangul.", e);
   }
 
   doc.setFontSize(14);
@@ -192,12 +192,14 @@ btnPdf?.addEventListener("click", async () => {
     ]);
   });
 
+  // 표 내부까지 한글 폰트 강제 적용
   doc.autoTable({
     head: [['#','단어','뜻','#','단어','뜻']],
     body: rows,
     startY: 60,
-    styles: { fontSize: 10, cellPadding: 4 },
-    headStyles: { fillColor: [240,240,240], textColor: 20 }
+    styles: { font: 'NotoSansKR', fontSize: 10, cellPadding: 4 },
+    headStyles: { font: 'NotoSansKR', fillColor: [240,240,240], textColor: 20 },
+    bodyStyles: { font: 'NotoSansKR' }
   });
 
   doc.save("WordSnap_단어장_60.pdf");
