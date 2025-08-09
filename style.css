@@ -18,3 +18,5 @@ main{max-width:960px; margin:0 auto; background:#fff; border:1px solid #e5e7eb; 
 .vocab-table td[contenteditable]{text-align:left; padding-left:8px}
 
 .foot{max-width:960px; margin:12px auto 0; text-align:center; color:#6b7280}
+.word-cell { display:flex; flex-direction:column; align-items:flex-start; }
+.word-cell .ipa { font-size:12px; color:#6b7280; line-height:1.2; margin-top:2px; }
