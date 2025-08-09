@@ -15,7 +15,7 @@ const btnAnalyze = document.getElementById("btnAnalyze");
 const btnPdf = document.getElementById("btnPdf");
 const statusEl = document.getElementById("status");
 
-// 발음(표시X, 내부 보관)
+// 발음(표시는 안함)
 let pronunciations = new Map();
 
 // 클라 리사이즈(413 방지 & 가독성↑)
@@ -45,52 +45,72 @@ async function fetchDict(word) {
   } catch { return { meaning: "", ipa: "" }; }
 }
 
-// 서버 호출: 이미지 → 단어 60개
-async function extractWordsViaServer(file) {
+// 서버 호출: 이미지 → [{word, meaning_ko|null}]
+async function extractItemsViaServer(file) {
   const fd = new FormData();
   fd.append("image", file, file.name || "upload.jpg");
   const res = await fetch("/api/extract", { method: "POST", body: fd });
   const text = await res.text();
   if (!res.ok) throw new Error(text);
   const data = JSON.parse(text);
-  return Array.isArray(data.words) ? data.words : [];
+  return Array.isArray(data.items) ? data.items : [];
 }
 
-// ★ 세로 우선 채우기
-async function fillTableVertical(words, doTranslate) {
+// 세로 우선 채우기(1단계/2단계 옵션 적용)
+async function fillVerticalWithOptions(items, doTranslate, hasMeaningInImage) {
   pronunciations.clear();
 
-  // 왼쪽/오른쪽 칸 분리
-  const Lw = Array.from(tbody.querySelectorAll("tr td:nth-child(2)")); // 왼쪽 단어
-  const Lm = Array.from(tbody.querySelectorAll("tr td:nth-child(3)")); // 왼쪽 뜻
-  const Rw = Array.from(tbody.querySelectorAll("tr td:nth-child(5)")); // 오른쪽 단어
-  const Rm = Array.from(tbody.querySelectorAll("tr td:nth-child(6)")); // 오른쪽 뜻
+  const Lw = Array.from(tbody.querySelectorAll("tr td:nth-child(2)"));
+  const Lm = Array.from(tbody.querySelectorAll("tr td:nth-child(3)"));
+  const Rw = Array.from(tbody.querySelectorAll("tr td:nth-child(5)"));
+  const Rm = Array.from(tbody.querySelectorAll("tr td:nth-child(6)"));
 
-  // 초기화
   [...Lw, ...Lm, ...Rw, ...Rm].forEach(td => td.textContent = "");
+
+  // 단어 배열/뜻 배열로 분리
+  const words = items.map(it => it.word).slice(0, 60);
+  const meaningsFromImage = items.map(it => it.meaning_ko || "").slice(0, 60);
 
   const rows = 30;
 
-  // 1) 왼쪽 열(1~30)을 위→아래로 채움
+  // 왼쪽 1~30 (위→아래)
   for (let i = 0; i < rows && i < words.length; i++) {
     const w = (words[i] || "").trim();
     if (!w) continue;
     Lw[i].textContent = w;
-    const { meaning, ipa } = await fetchDict(w);
-    pronunciations.set(w, ipa);
-    if (doTranslate) Lm[i].textContent = meaning || "";
+
+    if (!doTranslate) continue; // 1단계 OFF → 비워둠
+
+    if (hasMeaningInImage) {
+      // 2단계: 이미지에 뜻이 있음 → OCR 값 사용
+      const m = meaningsFromImage[i] || "";
+      Lm[i].textContent = m;
+    } else {
+      // 2단계: 없음 → 사전 호출
+      const { meaning, ipa } = await fetchDict(w);
+      pronunciations.set(w, ipa);
+      Lm[i].textContent = meaning || "";
+    }
   }
 
-  // 2) 오른쪽 열(31~60)을 위→아래로 채움
+  // 오른쪽 31~60 (위→아래)
   for (let j = 0; j < rows; j++) {
     const idx = rows + j;
     if (idx >= words.length) break;
     const w = (words[idx] || "").trim();
     if (!w) continue;
     Rw[j].textContent = w;
-    const { meaning, ipa } = await fetchDict(w);
-    pronunciations.set(w, ipa);
-    if (doTranslate) Rm[j].textContent = meaning || "";
+
+    if (!doTranslate) continue;
+
+    if (hasMeaningInImage) {
+      const m = meaningsFromImage[idx] || "";
+      Rm[j].textContent = m;
+    } else {
+      const { meaning, ipa } = await fetchDict(w);
+      pronunciations.set(w, ipa);
+      Rm[j].textContent = meaning || "";
+    }
   }
 }
 
@@ -98,14 +118,25 @@ async function fillTableVertical(words, doTranslate) {
 btnAnalyze.addEventListener("click", async () => {
   const f = imageInput.files?.[0];
   if (!f) return alert("이미지를 업로드하세요.");
+
+  const doTranslate = document.getElementById("doTranslate").checked;
+  let hasMeaningInImage = false;
+
+  // 1단계: 한국어 뜻 채울지 여부
+  if (doTranslate) {
+    // 2단계: 이미지에 뜻이 있냐?
+    hasMeaningInImage = confirm("이미지 안에 한국어 뜻이 포함되어 있나요?\n[확인]=있음  /  [취소]=없음");
+  }
+
   btnAnalyze.disabled = true; btnPdf.disabled = true;
   statusEl.textContent = "이미지 전처리 중…";
+
   try {
     const small = await compressImage(f, { maxW: 2000, maxH: 2000, quality: 0.9 });
     statusEl.textContent = "AI 분석 중…";
-    const words = await extractWordsViaServer(small);
-    statusEl.textContent = `단어 ${words.length}개 발견. 사전 조회 중…`;
-    await fillTableVertical(words, document.getElementById("doTranslate").checked);
+    const items = await extractItemsViaServer(small); // [{word, meaning_ko|null}]
+    statusEl.textContent = `단어 ${items.length}개 발견. 표 채우는 중…`;
+    await fillVerticalWithOptions(items, doTranslate, hasMeaningInImage);
     statusEl.textContent = "완료";
   } catch (e) {
     console.error(e);
@@ -116,7 +147,7 @@ btnAnalyze.addEventListener("click", async () => {
   }
 });
 
-// PDF (발음 제외)
+// PDF (발음 제외: 단어/뜻만)
 btnPdf.addEventListener("click", () => {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "a4" });
@@ -138,4 +169,3 @@ btnPdf.addEventListener("click", () => {
   });
   doc.save("WordSnap_단어장_60.pdf");
 });
-
