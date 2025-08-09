@@ -4,6 +4,7 @@ export const config = { api: { bodyParser: false } };
 import formidable from "formidable";
 import fs from "fs";
 
+// --------- helpers ---------
 const parseForm = (req) =>
   new Promise((resolve, reject) => {
     const form = formidable({
@@ -14,7 +15,6 @@ const parseForm = (req) =>
     form.parse(req, (err, fields, files) => (err ? reject(err) : resolve({ fields, files })));
   });
 
-// 업로드 파일 안정 추출
 function getFirstFile(files) {
   const keys = ["image", "images", "file", "upload"];
   const pool = [];
@@ -31,44 +31,43 @@ function getFirstFile(files) {
   return f;
 }
 
-// 느슨 파서(코드펜스/후행쉼표/싱글쿼트 보정)
-function parseAIJSONLoose(text) {
+function looseJSON(text) {
   if (!text) return null;
-  text = text.replace(/```[\s\S]*?```/g, (m) => m.replace(/```(json)?/g, "").trim());
-  const s = text.indexOf("{"), e = text.lastIndexOf("}");
+  const cleaned = text
+    .replace(/```[\s\S]*?```/g, (m) => m.replace(/```(json)?/g, "").trim())
+    .replace(/,\s*([}\]])/g, "$1");
+  const s = cleaned.indexOf("{"), e = cleaned.lastIndexOf("}");
   if (s === -1 || e === -1 || e < s) return null;
-  let chunk = text.slice(s, e + 1);
-  if (chunk.includes("'") && !chunk.includes('"')) chunk = chunk.replace(/'/g, '"');
-  chunk = chunk.replace(/,\s*([}\]])/g, "$1");
-  try { return JSON.parse(chunk); } catch { return null; }
+  try { return JSON.parse(cleaned.slice(s, e + 1)); } catch { return null; }
 }
 
-// 필터/정규화
 const STOP_KO = /^(순위|명사|동사|형용사|형용사들?|단어|뜻|예문|품사)$/;
 const hasHangul = /[가-힣]/;
 const onlyDigits = /^[\d.,\-–—]+$/;
 
 function cleanWord(w) {
   if (!w) return "";
-  const normalized = String(w).trim().toLowerCase();
-  if (normalized.length < 2) return "";
-  if (hasHangul.test(normalized)) return "";        // 영어 단어에 한글 섞이면 제외
-  if (onlyDigits.test(normalized)) return "";       // 숫자 토큰 제외
-  if (STOP_KO.test(normalized)) return "";          // 표 머리글 제외
-  const cleaned = normalized.replace(/^[^a-z']+|[^a-z']+$/g, "");
+  const n = String(w).trim().toLowerCase();
+  if (n.length < 2) return "";
+  if (hasHangul.test(n)) return "";      
+  if (onlyDigits.test(n)) return "";    
+  if (STOP_KO.test(n)) return "";       
+  const cleaned = n.replace(/^[^a-z']+|[^a-z']+$/g, "");
   if (!/^[a-z][a-z' -]*[a-z]$/.test(cleaned)) return "";
   return cleaned;
 }
-function cleanMeaning(m) {
-  if (!m) return null;
-  const txt = String(m).trim();
-  if (!txt) return null;
-  // 뜻에는 한글 허용, 영어만 덩그러니면 무시
-  if (!/[가-힣]/.test(txt)) return null;
-  if (STOP_KO.test(txt)) return null;
-  return txt;
+
+function tidyMeaning(m) {
+  if (m == null) return null;
+  const t = String(m).trim();
+  if (!t) return null;
+  // 한국어가 1자 이상 포함된 경우만 의미로 인정
+  if (!/[가-힣]/.test(t)) return null;
+  if (STOP_KO.test(t)) return null;
+  return t;
 }
 
+// --------- main handler ---------
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
   try {
@@ -78,30 +77,33 @@ export default async function handler(req, res) {
     const b64 = await fs.promises.readFile(f.filepath, { encoding: "base64" });
     const mime = f.mimetype || "image/jpeg";
 
+    // ✅ 한 번의 호출로: 이미지에 한국어 뜻이 보이면 그대로, 없으면 "짧은 한국어 뜻"으로 채워라
     const messages = [
       {
         role: "system",
         content:
-          "You read printed or handwritten images and extract vocabulary. Return ONLY JSON.",
+          "You perform OCR on printed or handwritten vocabulary sheets. Return compact JSON only."
       },
       {
         role: "user",
         content: [
           {
             type: "text",
-            text: `Return ONLY minified JSON (no code fences, no commentary):
-{"items":[{"word":"string","meaning_ko":"string|null"}]}
+            text:
+`Return ONLY minified JSON (no code fences, no commentary):
+{"items":[{"word":"string","meaning_ko":"string"}]}
 
-Rules:
-- Extract up to 60 distinct ENGLISH words readable by a human.
-- If a Korean meaning is VISIBLE near the word in the image, copy it VERBATIM into meaning_ko.
-- If no Korean meaning is visible, set meaning_ko:null (do NOT invent).
+Extraction rules:
+- Extract up to 60 DISTINCT ENGLISH WORDS a human can read from the image.
+- If a KOREAN meaning is VISIBLE near a word, COPY it VERBATIM into meaning_ko.
+- If no Korean meaning is visible, provide a SHORT Korean dictionary meaning for the word (do not translate sentences, just the common sense).
 - STRICTLY IGNORE table headers like "순위, 명사, 동사, 형용사" and row numbers (1,2,3...).
-- Words must be lowercase ASCII, allow apostrophes/hyphens. Korean only allowed in meaning_ko.`,
+- Words must be lowercase ASCII; allow apostrophes/hyphens; no numeric-only tokens.
+- Korean is only allowed in meaning_ko.`
           },
-          { type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } },
-        ],
-      },
+          { type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } }
+        ]
+      }
     ];
 
     // 1차: JSON 강제
@@ -109,46 +111,47 @@ Rules:
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "gpt-4o", // 필요 시 gpt-4o-mini
+        model: "gpt-4o-mini", // gpt-4o 사용해도 됨
         messages,
         temperature: 0,
         response_format: { type: "json_object" },
-        max_tokens: 1200,
-      }),
+        max_tokens: 1400
+      })
     });
+
     const raw1 = await r1.text();
     if (!r1.ok) throw new Error(`OpenAI ${r1.status}: ${raw1.slice(0, 800)}`);
 
     let json = null;
     try {
-      const data = JSON.parse(raw1);
-      const content = data?.choices?.[0]?.message?.content;
+      const j = JSON.parse(raw1);
+      const content = j?.choices?.[0]?.message?.content;
       json = typeof content === "string" ? JSON.parse(content) : null;
     } catch {
-      json = parseAIJSONLoose(raw1);
+      json = looseJSON(raw1);
     }
 
-    // 2차: 페일오버
+    // 2차: 페일오버(포맷 강제 해제)
     if (!json || !Array.isArray(json.items)) {
       const r2 = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "gpt-4o",
+          model: "gpt-4o-mini",
           messages,
           temperature: 0,
-          max_tokens: 1200,
-        }),
+          max_tokens: 1400
+        })
       });
       const raw2 = await r2.text();
       if (!r2.ok) throw new Error(`OpenAI(fo) ${r2.status}: ${raw2.slice(0, 800)}`);
-      json = parseAIJSONLoose(raw2);
+      json = looseJSON(raw2);
     }
 
     if (!json || !Array.isArray(json.items)) {
@@ -156,7 +159,7 @@ Rules:
       throw new Error("Invalid JSON from AI");
     }
 
-    // 정제 + 중복 제거 + 60개 제한
+    // 정제 + 중복 제거 + 최대 60개
     const out = [];
     const seen = new Set();
     for (const it of json.items) {
@@ -164,8 +167,9 @@ Rules:
       if (!w) continue;
       if (seen.has(w)) continue;
       seen.add(w);
-      const meaning = cleanMeaning(it?.meaning_ko);
-      out.push({ word: w, meaning_ko: meaning ?? null });
+      // 이미지에 없었으면 모델이 짧은 한국어 뜻을 생성하도록 했으므로, 한국어 확인만
+      const m = tidyMeaning(it?.meaning_ko) ?? ""; // 한국어가 아니면 빈칸 처리(안전)
+      out.push({ word: w, meaning_ko: m });
       if (out.length >= 60) break;
     }
 
